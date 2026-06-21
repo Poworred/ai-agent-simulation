@@ -2,9 +2,10 @@ from sqlmodel import Session, select
 
 from app.core.time import is_after_simulation_end, next_tick
 from app.domain.constants import ActionType, EventType, RunStatus
-from app.models.tables import Agent, Event, Schedule, SimulationRun
+from app.models.tables import Agent, Event, Location, Path, Schedule, SimulationRun
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
+from app.services.game_master import GameMaster
 
 
 class SimulationService:
@@ -49,6 +50,7 @@ class SimulationService:
 
     def _tick_agents(self, run: SimulationRun) -> tuple[list[Event], list[Agent]]:
         agents = self.session.exec(select(Agent).where(Agent.run_id == run.id)).all()
+        game_master = self._build_game_master(run.id)
         new_events: list[Event] = []
         updated_agents: list[Agent] = []
         for agent in agents:
@@ -61,10 +63,19 @@ class SimulationService:
                 pending_interventions=[],
                 current_schedule=schedule,
             )
-            event = self._apply_rule_action(run, agent, action)
+            event = self._apply_rule_action(run, agent, action, game_master)
             new_events.append(event)
             updated_agents.append(agent)
         return new_events, updated_agents
+
+    def _build_game_master(self, run_id: str) -> GameMaster:
+        locations = self.session.exec(select(Location).where(Location.run_id == run_id)).all()
+        paths = self.session.exec(select(Path).where(Path.run_id == run_id)).all()
+        location_ids = {location.id for location in locations}
+        path_map: dict[str, set[str]] = {}
+        for path in paths:
+            path_map.setdefault(path.from_location_id, set()).add(path.to_location_id)
+        return GameMaster(paths=path_map, locations=location_ids)
 
     def _current_schedule(self, run_id: str, agent_id: str, day: int, minute: int) -> dict | None:
         schedule = self.session.exec(
@@ -75,7 +86,24 @@ class SimulationService:
         ).first()
         return schedule.model_dump() if schedule else None
 
-    def _apply_rule_action(self, run: SimulationRun, agent: Agent, action) -> Event:
+    def _apply_rule_action(self, run: SimulationRun, agent: Agent, action, game_master: GameMaster) -> Event:
+        validation = game_master.validate(agent.current_location_id, action)
+        if not validation.allowed:
+            agent.current_action = ActionType.IDLE.value
+            self.session.add(agent)
+            return create_event(
+                self.session,
+                run_id=run.id,
+                day=run.current_day,
+                minute=run.current_minute,
+                event_type=EventType.SYSTEM,
+                summary=f"{agent.name}的行动被 Game Master 拒绝。",
+                details=validation.reason,
+                location_id=agent.current_location_id,
+                agent_ids=[agent.id],
+                state_delta={"rejected_action": action.model_dump(mode="json")},
+            )
+
         if action.type == ActionType.MOVE and action.target_location_id:
             old_location_id = agent.current_location_id
             agent.current_location_id = action.target_location_id
