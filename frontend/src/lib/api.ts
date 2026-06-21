@@ -18,6 +18,24 @@ export async function getRunState(runId: string): Promise<RunState> {
   return response.json();
 }
 
+export async function tickRun(
+  runId: string,
+  tickCount = 1,
+  llmMode = "offline",
+): Promise<{
+  run: RunState["run"];
+  new_events: RunState["recent_events"];
+  updated_agents: RunState["agents"];
+}> {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/tick`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tick_count: tickCount, llm_mode: llmMode }),
+  });
+  if (!response.ok) throw new Error(`Failed to tick run: ${response.status}`);
+  return response.json();
+}
+
 export async function submitIntervention(
   agentId: string,
   content: string,

@@ -1,23 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { AgentDetailPanel } from "@/components/AgentDetailPanel";
 import { AgentSidebar } from "@/components/AgentSidebar";
 import { CampusMap } from "@/components/CampusMap";
 import { EventFeed } from "@/components/EventFeed";
 import { SimulationHeader } from "@/components/SimulationHeader";
-import { createRun, getRunState, submitIntervention } from "@/lib/api";
+import { createRun, getRunState, submitIntervention, tickRun } from "@/lib/api";
 import type { RunState } from "@/types/simulation";
 
 export default function HomePage() {
   const [state, setState] = useState<RunState | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [interventionText, setInterventionText] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleCreateRun() {
     setError(null);
+    handlePause();
     try {
       const nextState = await createRun();
       setState(nextState);
@@ -27,13 +30,58 @@ export default function HomePage() {
     }
   }
 
+  function applyStateRefresh(nextState: RunState) {
+    setState(nextState);
+    if (!nextState.agents.some((agent) => agent.id === selectedAgentId)) {
+      setSelectedAgentId(nextState.agents[0]?.id ?? null);
+    }
+  }
+
+  async function handleStep() {
+    if (!state) return;
+    setError(null);
+    try {
+      await tickRun(state.run.id, 1, "offline");
+      applyStateRefresh(await getRunState(state.run.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "推进模拟失败");
+    }
+  }
+
+  function handleRun() {
+    if (!state || intervalRef.current) return;
+    setIsRunning(true);
+    intervalRef.current = setInterval(() => {
+      void handleStep();
+    }, 1500);
+  }
+
+  function handlePause() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsRunning(false);
+  }
+
+  async function handleFastForwardHour() {
+    if (!state) return;
+    setError(null);
+    try {
+      await tickRun(state.run.id, 2, "offline");
+      applyStateRefresh(await getRunState(state.run.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "快进失败");
+    }
+  }
+
   async function handleSubmitIntervention() {
     if (!state || !selectedAgentId || !interventionText.trim()) return;
     setError(null);
     try {
       await submitIntervention(selectedAgentId, interventionText);
       setInterventionText("");
-      setState(await getRunState(state.run.id));
+      applyStateRefresh(await getRunState(state.run.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交干预失败");
     }
@@ -43,7 +91,15 @@ export default function HomePage() {
 
   return (
     <main className="page">
-      <SimulationHeader run={state?.run ?? null} onCreateRun={handleCreateRun} />
+      <SimulationHeader
+        run={state?.run ?? null}
+        isRunning={isRunning}
+        onCreateRun={handleCreateRun}
+        onStep={handleStep}
+        onRun={handleRun}
+        onPause={handlePause}
+        onFastForwardHour={handleFastForwardHour}
+      />
       {error ? <div className="error">{error}</div> : null}
       <div className="grid">
         <AgentSidebar
