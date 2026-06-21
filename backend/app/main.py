@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.agents import router as agents_router
+from app.api.events import router as events_router
 from app.api.runs import router as runs_router
 from app.db.session import create_db_and_tables
 
@@ -15,6 +17,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="AI 南大 Simulation API", lifespan=lifespan)
 app.include_router(runs_router)
+app.include_router(agents_router)
+app.include_router(events_router)
 
 
 @app.get("/health")
