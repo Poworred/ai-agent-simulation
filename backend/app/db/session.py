@@ -12,5 +12,6 @@ def create_db_and_tables() -> None:
 
 
 def get_session() -> Generator[Session, None, None]:
+    create_db_and_tables()
     with Session(engine) as session:
         yield session
