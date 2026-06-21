@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from app.core.ids import new_id
 from app.core.time import is_after_simulation_end, next_tick
 from app.domain.constants import ActionType, EventType, RunStatus
-from app.models.tables import Agent, Event, Location, Memory, Path, Schedule, SimulationRun, UserIntervention
+from app.models.tables import Agent, Event, LLMCall, Location, Memory, Path, Schedule, SimulationRun, UserIntervention
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
 from app.services.game_master import GameMaster
@@ -89,6 +89,13 @@ class SimulationService:
             return None
         provider = get_llm_provider(llm_mode)
         result = provider.reflect_day({"agent_name": agent.name, "current_goal": agent.current_goal})
+        self._log_llm_call(
+            run,
+            agent.id,
+            "reflect_day",
+            {"agent_name": agent.name, "current_goal": agent.current_goal},
+            result.model_dump(mode="json"),
+        )
         agent.last_reflection_at = reflection_key
         agent.adaptation_score += result.adaptation_delta
         event = create_event(
@@ -135,6 +142,31 @@ class SimulationService:
                 )
             )
 
+    def _log_llm_call(
+        self,
+        run: SimulationRun,
+        agent_id: str | None,
+        function_name: str,
+        input_summary: dict,
+        output_json: dict,
+        status: str = "success",
+        error_message: str | None = None,
+    ) -> None:
+        self.session.add(
+            LLMCall(
+                id=new_id("llm"),
+                run_id=run.id,
+                agent_id=agent_id,
+                function_name=function_name,
+                prompt_version="v1",
+                input_summary=str(input_summary)[:500],
+                output_json=output_json,
+                status=status,
+                latency_ms=0,
+                error_message=error_message,
+            )
+        )
+
     def _pending_intervention_rows(self, run_id: str, agent_id: str) -> list[UserIntervention]:
         return self.session.exec(
             select(UserIntervention).where(
@@ -161,6 +193,13 @@ class SimulationService:
                     "current_goal": agent.current_goal,
                     "content": intervention.content,
                 }
+            )
+            self._log_llm_call(
+                run,
+                agent.id,
+                "decide_intervention",
+                {"content": intervention.content},
+                decision.model_dump(mode="json"),
             )
             intervention.status = decision.decision
             if decision.decision == "accepted" and decision.new_immediate_goal:
@@ -244,6 +283,13 @@ class SimulationService:
                     "target": target.name if target else "同学",
                     "topic": action.topic,
                 }
+            )
+            self._log_llm_call(
+                run,
+                agent.id,
+                "generate_dialogue",
+                {"target_agent_id": action.target_agent_id, "topic": action.topic},
+                dialogue.model_dump(mode="json"),
             )
             agent.current_action = ActionType.TALK.value
             summary = dialogue.event_summary
