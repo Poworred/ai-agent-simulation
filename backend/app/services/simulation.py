@@ -1,8 +1,9 @@
 from sqlmodel import Session, select
 
+from app.core.ids import new_id
 from app.core.time import is_after_simulation_end, next_tick
 from app.domain.constants import ActionType, EventType, RunStatus
-from app.models.tables import Agent, Event, Location, Path, Schedule, SimulationRun
+from app.models.tables import Agent, Event, Location, Memory, Path, Schedule, SimulationRun
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
 from app.services.game_master import GameMaster
@@ -64,6 +65,7 @@ class SimulationService:
                 current_schedule=schedule,
             )
             event = self._apply_rule_action(run, agent, action, game_master)
+            self._write_event_memory(run, event)
             new_events.append(event)
             updated_agents.append(agent)
         return new_events, updated_agents
@@ -77,11 +79,34 @@ class SimulationService:
             path_map.setdefault(path.from_location_id, set()).add(path.to_location_id)
         return GameMaster(paths=path_map, locations=location_ids)
 
+    def _write_event_memory(self, run: SimulationRun, event: Event, importance: int = 2) -> None:
+        if event.event_type == EventType.SYSTEM.value:
+            return
+        for agent_id in event.agent_ids:
+            self.session.add(
+                Memory(
+                    id=new_id("mem"),
+                    run_id=run.id,
+                    agent_id=agent_id,
+                    memory_type="short_term",
+                    content=event.summary,
+                    importance=importance,
+                    tags=[event.event_type],
+                    source="event",
+                    related_event_id=event.id,
+                    created_day=run.current_day,
+                    created_minute=run.current_minute,
+                )
+            )
+
     def _current_schedule(self, run_id: str, agent_id: str, day: int, minute: int) -> dict | None:
         schedule = self.session.exec(
             select(Schedule)
             .where(Schedule.run_id == run_id, Schedule.agent_id == agent_id, Schedule.day == day)
-            .where(Schedule.start_minute <= minute, Schedule.end_minute >= minute)
+            .where(
+                Schedule.start_minute <= minute + 30,
+                Schedule.end_minute >= minute,
+            )
             .order_by(Schedule.priority.desc())
         ).first()
         return schedule.model_dump() if schedule else None
