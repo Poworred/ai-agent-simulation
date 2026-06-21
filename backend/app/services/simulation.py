@@ -4,6 +4,7 @@ from app.core.ids import new_id
 from app.core.time import is_after_simulation_end, next_tick
 from app.domain.constants import ActionType, EventType, RunStatus
 from app.models.tables import Agent, Event, LLMCall, Location, Memory, Path, Schedule, SimulationRun, UserIntervention
+from app.seed.event_templates import CLASS_EVENTS, CLUB_EVENTS, LOST_ITEM_EVENTS, MEAL_EVENTS
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
 from app.services.game_master import GameMaster
@@ -80,6 +81,10 @@ class SimulationService:
             reflection_event = self._maybe_reflect(run, agent, llm_mode)
             if reflection_event:
                 new_events.append(reflection_event)
+            lost_item_event = self._maybe_lost_item_event(run, agent)
+            if lost_item_event:
+                self._write_event_memory(run, lost_item_event, importance=4)
+                new_events.append(lost_item_event)
             updated_agents.append(agent)
         return new_events, updated_agents
 
@@ -112,6 +117,30 @@ class SimulationService:
         )
         self._write_event_memory(run, event, importance=4)
         return event
+
+    def _maybe_lost_item_event(self, run: SimulationRun, agent: Agent) -> Event | None:
+        if not (
+            run.current_day == 2
+            and run.current_minute == 15 * 60
+            and agent.current_location_id in {"library", "canteen"}
+        ):
+            return None
+        return create_event(
+            self.session,
+            run_id=run.id,
+            day=run.current_day,
+            minute=run.current_minute,
+            event_type=EventType.LOST_ITEM,
+            summary=self._template_summary(LOST_ITEM_EVENTS, agent, run),
+            details="这条事件会进入记忆流，用于后续失物招领行为。",
+            location_id=agent.current_location_id,
+            agent_ids=[agent.id],
+        )
+
+    def _template_summary(self, templates: list[str], agent: Agent, run: SimulationRun) -> str:
+        index_seed = sum(ord(char) for char in agent.id) + run.current_day + run.current_minute
+        template = templates[index_seed % len(templates)]
+        return template.format(agent=agent.name)
 
     def _build_game_master(self, run_id: str) -> GameMaster:
         locations = self.session.exec(select(Location).where(Location.run_id == run_id)).all()
@@ -263,16 +292,16 @@ class SimulationService:
             event_type = EventType.MOVE
         elif action.type == ActionType.ATTEND_CLASS:
             agent.current_action = ActionType.ATTEND_CLASS.value
-            summary = f"{agent.name}按计划在教学楼上课。"
+            summary = self._template_summary(CLASS_EVENTS, agent, run)
             event_type = EventType.CLASS
         elif action.type == ActionType.EAT:
             agent.current_action = ActionType.EAT.value
             agent.energy = min(100, agent.energy + 10)
-            summary = f"{agent.name}在食堂吃饭，精力稍微恢复。"
+            summary = self._template_summary(MEAL_EVENTS, agent, run)
             event_type = EventType.MEAL
         elif action.type == ActionType.JOIN_ACTIVITY:
             agent.current_action = ActionType.JOIN_ACTIVITY.value
-            summary = f"{agent.name}来到社团招新点，观察不同社团的摊位。"
+            summary = self._template_summary(CLUB_EVENTS, agent, run)
             event_type = EventType.CLUB
         elif action.type == ActionType.TALK and action.target_agent_id:
             target = self.session.get(Agent, action.target_agent_id)
