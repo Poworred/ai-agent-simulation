@@ -81,6 +81,15 @@ class TickResponse(BaseModel):
     updated_agents: list[AgentRead]
 
 
+class CreateInterventionRequest(BaseModel):
+    content: str
+
+
+class InterventionResponse(BaseModel):
+    intervention_id: str
+    status: str
+
+
 class AgentProfileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -85,6 +85,7 @@ PATHS = [
     ("dorm", "teaching_building", 20),
     ("dorm", "canteen", 15),
     ("dorm", "stadium", 20),
+    ("dorm", "club_fair", 25),
     ("teaching_building", "canteen", 10),
     ("teaching_building", "library", 10),
     ("canteen", "library", 15),

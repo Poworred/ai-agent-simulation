@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from app.core.ids import new_id
 from app.core.time import is_after_simulation_end, next_tick
 from app.domain.constants import ActionType, EventType, RunStatus
-from app.models.tables import Agent, Event, Location, Memory, Path, Schedule, SimulationRun
+from app.models.tables import Agent, Event, Location, Memory, Path, Schedule, SimulationRun, UserIntervention
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
 from app.services.game_master import GameMaster
@@ -56,12 +56,13 @@ class SimulationService:
         updated_agents: list[Agent] = []
         for agent in agents:
             schedule = self._current_schedule(run.id, agent.id, run.current_day, run.current_minute)
+            pending_interventions = self._pending_interventions(run.id, agent.id)
             action = choose_rule_action(
                 agent_id=agent.id,
                 current_location_id=agent.current_location_id,
                 current_minute=run.current_minute,
                 nearby_agent_ids=[],
-                pending_interventions=[],
+                pending_interventions=pending_interventions,
                 current_schedule=schedule,
             )
             event = self._apply_rule_action(run, agent, action, game_master)
@@ -98,6 +99,16 @@ class SimulationService:
                     created_minute=run.current_minute,
                 )
             )
+
+    def _pending_interventions(self, run_id: str, agent_id: str) -> list[str]:
+        interventions = self.session.exec(
+            select(UserIntervention).where(
+                UserIntervention.run_id == run_id,
+                UserIntervention.agent_id == agent_id,
+                UserIntervention.status == "pending",
+            )
+        ).all()
+        return [intervention.content for intervention in interventions]
 
     def _current_schedule(self, run_id: str, agent_id: str, day: int, minute: int) -> dict | None:
         schedule = self.session.exec(

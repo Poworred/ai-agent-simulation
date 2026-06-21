@@ -7,12 +7,13 @@ import { AgentSidebar } from "@/components/AgentSidebar";
 import { CampusMap } from "@/components/CampusMap";
 import { EventFeed } from "@/components/EventFeed";
 import { SimulationHeader } from "@/components/SimulationHeader";
-import { createRun } from "@/lib/api";
+import { createRun, getRunState, submitIntervention } from "@/lib/api";
 import type { RunState } from "@/types/simulation";
 
 export default function HomePage() {
   const [state, setState] = useState<RunState | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [interventionText, setInterventionText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function handleCreateRun() {
@@ -23,6 +24,18 @@ export default function HomePage() {
       setSelectedAgentId(nextState.agents[0]?.id ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建模拟失败");
+    }
+  }
+
+  async function handleSubmitIntervention() {
+    if (!state || !selectedAgentId || !interventionText.trim()) return;
+    setError(null);
+    try {
+      await submitIntervention(selectedAgentId, interventionText);
+      setInterventionText("");
+      setState(await getRunState(state.run.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "提交干预失败");
     }
   }
 
@@ -46,7 +59,12 @@ export default function HomePage() {
         />
         <EventFeed events={state?.recent_events ?? []} />
       </div>
-      <AgentDetailPanel agent={selectedAgent} />
+      <AgentDetailPanel
+        agent={selectedAgent}
+        interventionText={interventionText}
+        onInterventionTextChange={setInterventionText}
+        onSubmitIntervention={handleSubmitIntervention}
+      />
     </main>
   );
 }

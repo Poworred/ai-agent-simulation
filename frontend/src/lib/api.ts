@@ -17,3 +17,16 @@ export async function getRunState(runId: string): Promise<RunState> {
   if (!response.ok) throw new Error(`Failed to load state: ${response.status}`);
   return response.json();
 }
+
+export async function submitIntervention(
+  agentId: string,
+  content: string,
+): Promise<{ intervention_id: string; status: string }> {
+  const response = await fetch(`${API_BASE}/api/agents/${agentId}/interventions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error(`Failed to submit intervention: ${response.status}`);
+  return response.json();
+}

@@ -12,6 +12,14 @@ def choose_rule_action(
     pending_interventions: list[str],
     current_schedule: dict[str, Any] | None,
 ) -> ProposedAction:
+    if any("社团" in intervention for intervention in pending_interventions) and current_location_id != "club_fair":
+        return ProposedAction(
+            type=ActionType.MOVE,
+            agent_id=agent_id,
+            target_location_id="club_fair",
+            reason="用户建议 Agent 去社团招新点看看，且该建议符合校园适应目标。",
+        )
+
     if current_schedule:
         target_location_id = current_schedule["location_id"]
         schedule_type = current_schedule["type"]
