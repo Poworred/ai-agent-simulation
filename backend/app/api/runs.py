@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.db.session import get_session
-from app.domain.schemas import CreateRunRequest, RunStateResponse
+from app.domain.schemas import CreateRunRequest, RunStateResponse, TickRequest, TickResponse
 from app.models.tables import Agent, Event, Location, SimulationRun
 from app.seed.seed_service import create_seed_run
+from app.services.simulation import SimulationService
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -21,6 +22,20 @@ def create_run(
 @router.get("/{run_id}/state", response_model=RunStateResponse)
 def get_run_state(run_id: str, session: Session = Depends(get_session)) -> RunStateResponse:
     return _build_run_state(session, run_id)
+
+
+@router.post("/{run_id}/tick", response_model=TickResponse)
+def tick_run(
+    run_id: str,
+    payload: TickRequest,
+    session: Session = Depends(get_session),
+) -> TickResponse:
+    service = SimulationService(session)
+    try:
+        run, new_events, updated_agents = service.tick(run_id, payload.tick_count, payload.llm_mode)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Run not found") from None
+    return TickResponse(run=run, new_events=new_events, updated_agents=updated_agents)
 
 
 def _build_run_state(session: Session, run_id: str) -> RunStateResponse:

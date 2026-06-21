@@ -70,6 +70,17 @@ class RunStateResponse(BaseModel):
     recent_events: list[EventRead]
 
 
+class TickRequest(BaseModel):
+    tick_count: int = 1
+    llm_mode: str = "normal"
+
+
+class TickResponse(BaseModel):
+    run: RunRead
+    new_events: list[EventRead]
+    updated_agents: list[AgentRead]
+
+
 class AgentProfileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
