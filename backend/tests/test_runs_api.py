@@ -42,3 +42,27 @@ def test_tick_writes_agent_memory():
 
     assert detail_response.status_code == 200
     assert len(detail_response.json()["important_memories"]) >= 1
+
+
+def test_tick_near_night_generates_reflection_event_offline():
+    client = TestClient(app)
+    run_response = client.post("/api/runs", json={"name": "Reflection Test"})
+    run_id = run_response.json()["run"]["id"]
+
+    response = client.post(f"/api/runs/{run_id}/tick", json={"tick_count": 30, "llm_mode": "offline"})
+
+    assert response.status_code == 200
+    summaries = [event["summary"] for event in response.json()["new_events"]]
+    assert any("反思" in summary or "回顾" in summary for summary in summaries)
+
+
+def test_offline_tick_can_generate_social_dialogue_event():
+    client = TestClient(app)
+    run_response = client.post("/api/runs", json={"name": "Dialogue Test"})
+    run_id = run_response.json()["run"]["id"]
+
+    response = client.post(f"/api/runs/{run_id}/tick", json={"tick_count": 7, "llm_mode": "offline"})
+
+    assert response.status_code == 200
+    events = response.json()["new_events"]
+    assert any(event["event_type"] == "social" for event in events)

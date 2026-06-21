@@ -7,6 +7,8 @@ from app.models.tables import Agent, Event, Location, Memory, Path, Schedule, Si
 from app.services.action_selector import choose_rule_action
 from app.services.events import create_event
 from app.services.game_master import GameMaster
+from app.services.llm_service import get_llm_provider
+from app.services.relationships import RelationshipService
 
 
 class SimulationService:
@@ -36,7 +38,7 @@ class SimulationService:
             if is_after_simulation_end(run.current_day, run.current_minute):
                 run.status = RunStatus.COMPLETED.value
 
-            events, agents = self._tick_agents(run)
+            events, agents = self._tick_agents(run, llm_mode)
             new_events.extend(events)
             updated_agents.extend(agents)
 
@@ -49,27 +51,60 @@ class SimulationService:
             self.session.refresh(agent)
         return run, new_events, updated_agents
 
-    def _tick_agents(self, run: SimulationRun) -> tuple[list[Event], list[Agent]]:
+    def _tick_agents(self, run: SimulationRun, llm_mode: str) -> tuple[list[Event], list[Agent]]:
         agents = self.session.exec(select(Agent).where(Agent.run_id == run.id)).all()
         game_master = self._build_game_master(run.id)
         new_events: list[Event] = []
         updated_agents: list[Agent] = []
         for agent in agents:
             schedule = self._current_schedule(run.id, agent.id, run.current_day, run.current_minute)
-            pending_interventions = self._pending_interventions(run.id, agent.id)
+            pending_intervention_rows = self._pending_intervention_rows(run.id, agent.id)
+            pending_interventions = [intervention.content for intervention in pending_intervention_rows]
+            self._decide_pending_interventions(run, agent, pending_intervention_rows, llm_mode)
+            nearby_agent_ids = [
+                other.id
+                for other in agents
+                if other.id != agent.id and other.current_location_id == agent.current_location_id
+            ]
             action = choose_rule_action(
                 agent_id=agent.id,
                 current_location_id=agent.current_location_id,
                 current_minute=run.current_minute,
-                nearby_agent_ids=[],
+                nearby_agent_ids=nearby_agent_ids,
                 pending_interventions=pending_interventions,
                 current_schedule=schedule,
             )
-            event = self._apply_rule_action(run, agent, action, game_master)
+            event = self._apply_rule_action(run, agent, action, game_master, llm_mode)
             self._write_event_memory(run, event)
             new_events.append(event)
+            reflection_event = self._maybe_reflect(run, agent, llm_mode)
+            if reflection_event:
+                new_events.append(reflection_event)
             updated_agents.append(agent)
         return new_events, updated_agents
+
+    def _maybe_reflect(self, run: SimulationRun, agent: Agent, llm_mode: str) -> Event | None:
+        reflection_key = f"day-{run.current_day}"
+        if run.current_minute < 22 * 60 + 30 or agent.last_reflection_at == reflection_key:
+            return None
+        provider = get_llm_provider(llm_mode)
+        result = provider.reflect_day({"agent_name": agent.name, "current_goal": agent.current_goal})
+        agent.last_reflection_at = reflection_key
+        agent.adaptation_score += result.adaptation_delta
+        event = create_event(
+            self.session,
+            run_id=run.id,
+            day=run.current_day,
+            minute=run.current_minute,
+            event_type=EventType.REFLECTION,
+            summary=f"{agent.name}完成今日反思：{result.reflection}",
+            details="\n".join(result.goal_updates),
+            location_id=agent.current_location_id,
+            agent_ids=[agent.id],
+            llm_generated=llm_mode != "offline",
+        )
+        self._write_event_memory(run, event, importance=4)
+        return event
 
     def _build_game_master(self, run_id: str) -> GameMaster:
         locations = self.session.exec(select(Location).where(Location.run_id == run_id)).all()
@@ -100,15 +135,49 @@ class SimulationService:
                 )
             )
 
-    def _pending_interventions(self, run_id: str, agent_id: str) -> list[str]:
-        interventions = self.session.exec(
+    def _pending_intervention_rows(self, run_id: str, agent_id: str) -> list[UserIntervention]:
+        return self.session.exec(
             select(UserIntervention).where(
                 UserIntervention.run_id == run_id,
                 UserIntervention.agent_id == agent_id,
                 UserIntervention.status == "pending",
             )
         ).all()
-        return [intervention.content for intervention in interventions]
+
+    def _decide_pending_interventions(
+        self,
+        run: SimulationRun,
+        agent: Agent,
+        interventions: list[UserIntervention],
+        llm_mode: str,
+    ) -> None:
+        if not interventions:
+            return
+        provider = get_llm_provider(llm_mode)
+        for intervention in interventions:
+            decision = provider.decide_intervention(
+                {
+                    "agent_name": agent.name,
+                    "current_goal": agent.current_goal,
+                    "content": intervention.content,
+                }
+            )
+            intervention.status = decision.decision
+            if decision.decision == "accepted" and decision.new_immediate_goal:
+                agent.current_goal = decision.new_immediate_goal
+            self.session.add(intervention)
+            create_event(
+                self.session,
+                run_id=run.id,
+                day=run.current_day,
+                minute=run.current_minute,
+                event_type=EventType.INTERVENTION,
+                summary=f"{agent.name}处理了用户建议：{decision.reason}",
+                details=intervention.content,
+                location_id=agent.current_location_id,
+                agent_ids=[agent.id],
+                llm_generated=llm_mode != "offline",
+            )
 
     def _current_schedule(self, run_id: str, agent_id: str, day: int, minute: int) -> dict | None:
         schedule = self.session.exec(
@@ -122,7 +191,14 @@ class SimulationService:
         ).first()
         return schedule.model_dump() if schedule else None
 
-    def _apply_rule_action(self, run: SimulationRun, agent: Agent, action, game_master: GameMaster) -> Event:
+    def _apply_rule_action(
+        self,
+        run: SimulationRun,
+        agent: Agent,
+        action,
+        game_master: GameMaster,
+        llm_mode: str = "offline",
+    ) -> Event:
         validation = game_master.validate(agent.current_location_id, action)
         if not validation.allowed:
             agent.current_action = ActionType.IDLE.value
@@ -159,6 +235,29 @@ class SimulationService:
             agent.current_action = ActionType.JOIN_ACTIVITY.value
             summary = f"{agent.name}来到社团招新点，观察不同社团的摊位。"
             event_type = EventType.CLUB
+        elif action.type == ActionType.TALK and action.target_agent_id:
+            target = self.session.get(Agent, action.target_agent_id)
+            provider = get_llm_provider(llm_mode)
+            dialogue = provider.generate_dialogue(
+                {
+                    "speaker": agent.name,
+                    "target": target.name if target else "同学",
+                    "topic": action.topic,
+                }
+            )
+            agent.current_action = ActionType.TALK.value
+            summary = dialogue.event_summary
+            event_type = EventType.SOCIAL
+            if target:
+                relationship_service = RelationshipService(self.session)
+                relationship = relationship_service.get_or_create(run.id, agent.id, target.id)
+                relationship_service.apply_delta(
+                    relationship,
+                    affinity=dialogue.relationship_delta.affinity,
+                    familiarity=dialogue.relationship_delta.familiarity,
+                    trust=dialogue.relationship_delta.trust,
+                    tag="友好交流",
+                )
         else:
             agent.current_action = action.type.value
             summary = f"{agent.name}暂时停留，原因是：{action.reason}"
