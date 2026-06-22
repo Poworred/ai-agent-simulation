@@ -39,7 +39,8 @@ class SimulationService:
             if is_after_simulation_end(run.current_day, run.current_minute):
                 run.status = RunStatus.COMPLETED.value
 
-            events, agents = self._tick_agents(run, llm_mode)
+            with self.session.no_autoflush:
+                events, agents = self._tick_agents(run, llm_mode)
             new_events.extend(events)
             updated_agents.extend(agents)
 

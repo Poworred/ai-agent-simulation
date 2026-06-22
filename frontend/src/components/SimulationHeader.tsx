@@ -4,6 +4,7 @@ import type { Run } from "@/types/simulation";
 type Props = {
   run: Run | null;
   isRunning: boolean;
+  isStepping: boolean;
   llmMode: string;
   onCreateRun: () => void;
   onStep: () => void;
@@ -15,6 +16,7 @@ type Props = {
 export function SimulationHeader({
   run,
   isRunning,
+  isStepping,
   llmMode,
   onCreateRun,
   onStep,
@@ -33,11 +35,12 @@ export function SimulationHeader({
         {run ? formatSimTime(run.current_day, run.current_minute) : "尚未开始"}
         {run ? <span className="status">{run.status}</span> : null}
         <span className="status">LLM {llmMode}</span>
+        {isStepping ? <span className="status running">thinking</span> : null}
         {isRunning ? <span className="status running">running</span> : null}
       </div>
       <div className="controlBar">
         <button className="primaryButton" onClick={onCreateRun}>初始化 / 重置</button>
-        <button onClick={onStep} disabled={!run}>单步</button>
+        <button onClick={onStep} disabled={!run || isStepping}>单步</button>
         <button onClick={onRun} disabled={!run || isRunning}>运行</button>
         <button onClick={onPause} disabled={!isRunning}>暂停</button>
         <button onClick={onFastForwardHour} disabled={!run}>快进 1 小时</button>

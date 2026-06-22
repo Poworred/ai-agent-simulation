@@ -4,7 +4,10 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import get_settings
 
-engine = create_engine(get_settings().database_url, connect_args={"check_same_thread": False})
+engine = create_engine(
+    get_settings().database_url,
+    connect_args={"check_same_thread": False, "timeout": 30},
+)
 
 
 def create_db_and_tables() -> None:

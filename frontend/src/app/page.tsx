@@ -18,6 +18,8 @@ export default function HomePage() {
   const [interventionText, setInterventionText] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isSteppingRef = useRef(false);
+  const [isStepping, setIsStepping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleCreateRun() {
@@ -40,13 +42,18 @@ export default function HomePage() {
   }
 
   async function handleStep() {
-    if (!state) return;
+    if (!state || isSteppingRef.current) return;
+    isSteppingRef.current = true;
+    setIsStepping(true);
     setError(null);
     try {
       await tickRun(state.run.id, 1, LLM_MODE);
       applyStateRefresh(await getRunState(state.run.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "推进模拟失败");
+    } finally {
+      isSteppingRef.current = false;
+      setIsStepping(false);
     }
   }
 
@@ -96,6 +103,7 @@ export default function HomePage() {
       <SimulationHeader
         run={state?.run ?? null}
         isRunning={isRunning}
+        isStepping={isStepping}
         llmMode={LLM_MODE}
         onCreateRun={handleCreateRun}
         onStep={handleStep}

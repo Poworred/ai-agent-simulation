@@ -1,3 +1,6 @@
+from collections import defaultdict
+from threading import Lock
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
@@ -8,6 +11,7 @@ from app.seed.seed_service import create_seed_run
 from app.services.simulation import SimulationService
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
+_tick_locks: defaultdict[str, Lock] = defaultdict(Lock)
 
 
 @router.post("", response_model=RunStateResponse, status_code=status.HTTP_201_CREATED)
@@ -32,7 +36,10 @@ def tick_run(
 ) -> TickResponse:
     service = SimulationService(session)
     try:
-        run, new_events, updated_agents = service.tick(run_id, payload.tick_count, payload.llm_mode)
+        with _tick_locks[run_id]:
+            run, new_events, updated_agents = service.tick(
+                run_id, payload.tick_count, payload.llm_mode
+            )
     except ValueError:
         raise HTTPException(status_code=404, detail="Run not found") from None
     return TickResponse(run=run, new_events=new_events, updated_agents=updated_agents)
