@@ -40,8 +40,9 @@ def test_tick_marks_intervention_considered():
     agent_id = run_response.json()["agents"][0]["id"]
 
     client.post(f"/api/agents/{agent_id}/interventions", json={"content": "你可以去社团招新点看看。"})
-    client.post(f"/api/runs/{run_id}/tick", json={"tick_count": 1, "llm_mode": "offline"})
+    tick = client.post(f"/api/runs/{run_id}/tick", json={"tick_count": 1, "llm_mode": "offline"}).json()
 
+    assert any(event["event_type"] == "intervention" for event in tick["new_events"])
     events = client.get(f"/api/runs/{run_id}/events?limit=50").json()
     assert any("建议" in event["summary"] or "社团" in event["summary"] for event in events)
 

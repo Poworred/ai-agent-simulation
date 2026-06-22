@@ -10,6 +10,8 @@ import { SimulationHeader } from "@/components/SimulationHeader";
 import { createRun, getRunState, submitIntervention, tickRun } from "@/lib/api";
 import type { RunState } from "@/types/simulation";
 
+const LLM_MODE = "normal";
+
 export default function HomePage() {
   const [state, setState] = useState<RunState | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export default function HomePage() {
     if (!state) return;
     setError(null);
     try {
-      await tickRun(state.run.id, 1, "offline");
+      await tickRun(state.run.id, 1, LLM_MODE);
       applyStateRefresh(await getRunState(state.run.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "推进模拟失败");
@@ -68,7 +70,7 @@ export default function HomePage() {
     if (!state) return;
     setError(null);
     try {
-      await tickRun(state.run.id, 2, "offline");
+      await tickRun(state.run.id, 2, LLM_MODE);
       applyStateRefresh(await getRunState(state.run.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "快进失败");
@@ -94,6 +96,7 @@ export default function HomePage() {
       <SimulationHeader
         run={state?.run ?? null}
         isRunning={isRunning}
+        llmMode={LLM_MODE}
         onCreateRun={handleCreateRun}
         onStep={handleStep}
         onRun={handleRun}

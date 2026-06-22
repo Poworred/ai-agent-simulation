@@ -33,6 +33,7 @@ class DeepSeekLLMProvider(LLMProvider):
 
     def _parse(self, model_type: type[T], prompt: str) -> T:
         schema = model_type.model_json_schema()
+        print(f"[llm] DeepSeek {self.settings.deepseek_model} -> {model_type.__name__}")
         response = self.client.post(
             "/chat/completions",
             json={

@@ -4,6 +4,7 @@ import type { Run } from "@/types/simulation";
 type Props = {
   run: Run | null;
   isRunning: boolean;
+  llmMode: string;
   onCreateRun: () => void;
   onStep: () => void;
   onRun: () => void;
@@ -14,6 +15,7 @@ type Props = {
 export function SimulationHeader({
   run,
   isRunning,
+  llmMode,
   onCreateRun,
   onStep,
   onRun,
@@ -30,6 +32,7 @@ export function SimulationHeader({
       <div className="timeBox">
         {run ? formatSimTime(run.current_day, run.current_minute) : "尚未开始"}
         {run ? <span className="status">{run.status}</span> : null}
+        <span className="status">LLM {llmMode}</span>
         {isRunning ? <span className="status running">running</span> : null}
       </div>
       <div className="controlBar">

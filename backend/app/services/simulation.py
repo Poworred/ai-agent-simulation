@@ -61,7 +61,9 @@ class SimulationService:
             schedule = self._current_schedule(run.id, agent.id, run.current_day, run.current_minute)
             pending_intervention_rows = self._pending_intervention_rows(run.id, agent.id)
             pending_interventions = [intervention.content for intervention in pending_intervention_rows]
-            self._decide_pending_interventions(run, agent, pending_intervention_rows, llm_mode)
+            new_events.extend(
+                self._decide_pending_interventions(run, agent, pending_intervention_rows, llm_mode)
+            )
             nearby_agent_ids = [
                 other.id
                 for other in agents
@@ -211,10 +213,11 @@ class SimulationService:
         agent: Agent,
         interventions: list[UserIntervention],
         llm_mode: str,
-    ) -> None:
+    ) -> list[Event]:
         if not interventions:
-            return
+            return []
         provider = get_llm_provider(llm_mode)
+        events: list[Event] = []
         for intervention in interventions:
             decision = provider.decide_intervention(
                 {
@@ -234,7 +237,7 @@ class SimulationService:
             if decision.decision == "accepted" and decision.new_immediate_goal:
                 agent.current_goal = decision.new_immediate_goal
             self.session.add(intervention)
-            create_event(
+            event = create_event(
                 self.session,
                 run_id=run.id,
                 day=run.current_day,
@@ -246,6 +249,8 @@ class SimulationService:
                 agent_ids=[agent.id],
                 llm_generated=llm_mode != "offline",
             )
+            events.append(event)
+        return events
 
     def _current_schedule(self, run_id: str, agent_id: str, day: int, minute: int) -> dict | None:
         schedule = self.session.exec(
