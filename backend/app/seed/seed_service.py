@@ -25,7 +25,8 @@ def create_seed_run(session: Session, name: str) -> SimulationRun:
     session.flush()
 
     for loc in LOCATIONS:
-        session.add(Location(run_id=run.id, open_minutes={}, **loc))
+        if session.get(Location, loc["id"]) is None:
+            session.add(Location(run_id=run.id, open_minutes={}, **loc))
 
     for from_id, to_id, distance in PATHS:
         session.add(
@@ -47,17 +48,19 @@ def create_seed_run(session: Session, name: str) -> SimulationRun:
             )
         )
 
+    agent_id_map = {agent["id"]: f"{run.id}_{agent['id']}" for agent in AGENTS}
     for agent in AGENTS:
+        run_agent = {**agent, "id": agent_id_map[agent["id"]]}
         session.add(
             Agent(
                 run_id=run.id,
                 current_location_id="dorm",
                 current_goal="适应大学第一周生活",
-                **agent,
+                **run_agent,
             )
         )
 
-    _seed_schedules(session, run.id)
+    _seed_schedules(session, run.id, agent_id_map)
 
     session.add(
         Event(
@@ -75,7 +78,7 @@ def create_seed_run(session: Session, name: str) -> SimulationRun:
     return run
 
 
-def _seed_schedules(session: Session, run_id: str) -> None:
+def _seed_schedules(session: Session, run_id: str, agent_id_map: dict[str, str]) -> None:
     class_agents = [
         "agent_wang_yinuo",
         "agent_chen_nian",
@@ -84,7 +87,8 @@ def _seed_schedules(session: Session, run_id: str) -> None:
         "agent_li_mengyao",
     ]
     for day in range(1, 8):
-        for agent_id in class_agents:
+        for base_agent_id in class_agents:
+            agent_id = agent_id_map[base_agent_id]
             session.add(
                 Schedule(
                     id=new_id("schedule"),
@@ -128,7 +132,8 @@ def _seed_schedules(session: Session, run_id: str) -> None:
                 )
             )
         if day in {1, 2, 3}:
-            for agent_id in class_agents:
+            for base_agent_id in class_agents:
+                agent_id = agent_id_map[base_agent_id]
                 session.add(
                     Schedule(
                         id=new_id("schedule"),

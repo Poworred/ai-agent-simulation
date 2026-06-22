@@ -143,7 +143,7 @@ class SimulationService:
         return template.format(agent=agent.name)
 
     def _build_game_master(self, run_id: str) -> GameMaster:
-        locations = self.session.exec(select(Location).where(Location.run_id == run_id)).all()
+        locations = self.session.exec(select(Location)).all()
         paths = self.session.exec(select(Path).where(Path.run_id == run_id)).all()
         location_ids = {location.id for location in locations}
         path_map: dict[str, set[str]] = {}

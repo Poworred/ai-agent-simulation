@@ -17,6 +17,35 @@ def test_create_run_initializes_seed_world():
     assert len(body["recent_events"]) >= 1
 
 
+def test_create_run_can_be_called_multiple_times():
+    client = TestClient(app)
+
+    first = client.post("/api/runs", json={"name": "第一次模拟"}).json()
+    second_response = client.post("/api/runs", json={"name": "第二次模拟"})
+
+    assert second_response.status_code == 201
+    second = second_response.json()
+    assert first["run"]["id"] != second["run"]["id"]
+    assert len(second["locations"]) >= 6
+    assert len(second["agents"]) >= 5
+    assert set(agent["id"] for agent in first["agents"]).isdisjoint(
+        agent["id"] for agent in second["agents"]
+    )
+
+
+def test_second_created_run_can_tick_with_world_locations():
+    client = TestClient(app)
+    client.post("/api/runs", json={"name": "第一次模拟"})
+    second = client.post("/api/runs", json={"name": "第二次模拟"}).json()
+    run_id = second["run"]["id"]
+
+    response = client.post(f"/api/runs/{run_id}/tick", json={"tick_count": 2, "llm_mode": "offline"})
+
+    assert response.status_code == 200
+    event_types = {event["event_type"] for event in response.json()["new_events"]}
+    assert "move" in event_types
+
+
 def test_tick_advances_time_and_creates_events():
     client = TestClient(app)
     run_response = client.post("/api/runs", json={"name": "Tick Test"})

@@ -1,6 +1,7 @@
 from app.core.config import get_settings
 from app.llm.anthropic_provider import AnthropicLLMProvider
 from app.llm.base import LLMProvider
+from app.llm.deepseek_provider import DeepSeekLLMProvider
 from app.llm.fake_provider import FakeLLMProvider
 
 
@@ -10,4 +11,6 @@ def get_llm_provider(llm_mode: str = "normal") -> LLMProvider:
         return FakeLLMProvider()
     if settings.llm_provider == "anthropic":
         return AnthropicLLMProvider(settings)
+    if settings.llm_provider == "deepseek":
+        return DeepSeekLLMProvider(settings)
     return FakeLLMProvider()

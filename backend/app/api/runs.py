@@ -42,7 +42,7 @@ def _build_run_state(session: Session, run_id: str) -> RunStateResponse:
     run = session.get(SimulationRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    locations = session.exec(select(Location).where(Location.run_id == run_id)).all()
+    locations = session.exec(select(Location)).all()
     agents = session.exec(select(Agent).where(Agent.run_id == run_id)).all()
     events = session.exec(
         select(Event).where(Event.run_id == run_id).order_by(Event.created_at.desc()).limit(50)
