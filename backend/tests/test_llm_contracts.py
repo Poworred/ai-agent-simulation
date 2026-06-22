@@ -122,10 +122,11 @@ def test_offline_mode_overrides_deepseek_config(monkeypatch):
 
 @pytest.mark.llm
 def test_deepseek_provider_real_reflection_smoke():
-    if os.getenv("RUN_LLM_TESTS") != "1" or not os.getenv("DEEPSEEK_API_KEY"):
+    settings = Settings()
+    if os.getenv("RUN_LLM_TESTS") != "1" or not settings.deepseek_api_key:
         pytest.skip("Set RUN_LLM_TESTS=1 and DEEPSEEK_API_KEY to run this test.")
 
-    provider = DeepSeekLLMProvider(Settings())
+    provider = DeepSeekLLMProvider(settings)
 
     result = provider.reflect_day({"agent_name": "王一诺", "current_goal": "适应大学生活"})
 
